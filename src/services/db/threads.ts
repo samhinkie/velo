@@ -1,5 +1,14 @@
 import { getDb } from "./connection";
 
+// EA label constants - will be created in separate task, use inline for now
+const EA_LABELS = {
+  HIGH: 'Label_8991603863627201242',
+  MEDIUM: 'Label_8180608479175321517',
+  LOW: 'Label_8508363860079466600',
+  ARCHIVE: 'Label_4139896242361942875',
+};
+const RECENT_DRAFT_DAYS = 7;
+
 export interface DbThread {
   id: string;
   account_id: string;
@@ -82,6 +91,87 @@ export async function getThreadsForCategory(
      ORDER BY t.is_pinned DESC, t.last_message_at DESC
      LIMIT $3 OFFSET $4`,
     [accountId, category, limit, offset],
+  );
+}
+
+/**
+ * Get threads sorted by EA priority labels:
+ * 0. Recent drafts (last 7 days)
+ * 1. 1-High
+ * 2. 2-Medium  
+ * 3. 3-Low
+ * 4. 4-Archive
+ * 99. Everything else
+ * 
+ * Within each bucket: most recent first (last_message_at DESC)
+ * Pinned threads always float to top.
+ */
+export async function getThreadsEAPriority(
+  accountId: string,
+  limit = 50,
+  offset = 0,
+): Promise<DbThread[]> {
+  const db = await getDb();
+  
+  const recentDraftCutoff = Date.now() - (RECENT_DRAFT_DAYS * 24 * 60 * 60 * 1000);
+  
+  return db.select<DbThread[]>(
+    `SELECT t.*, m.from_name, m.from_address
+     FROM threads t
+     INNER JOIN thread_labels tl_inbox ON tl_inbox.account_id = t.account_id 
+       AND tl_inbox.thread_id = t.id 
+       AND tl_inbox.label_id = 'INBOX'
+     LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+       AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
+     WHERE t.account_id = $1
+     GROUP BY t.account_id, t.id
+     ORDER BY 
+       t.is_pinned DESC,
+       CASE
+         WHEN EXISTS (
+           SELECT 1 FROM thread_labels tl_d 
+           WHERE tl_d.account_id = t.account_id 
+             AND tl_d.thread_id = t.id 
+             AND tl_d.label_id = 'DRAFT'
+         ) AND t.last_message_at > $2 THEN 0
+         WHEN EXISTS (
+           SELECT 1 FROM thread_labels tl_h
+           WHERE tl_h.account_id = t.account_id 
+             AND tl_h.thread_id = t.id 
+             AND tl_h.label_id = $3
+         ) THEN 1
+         WHEN EXISTS (
+           SELECT 1 FROM thread_labels tl_m
+           WHERE tl_m.account_id = t.account_id 
+             AND tl_m.thread_id = t.id 
+             AND tl_m.label_id = $4
+         ) THEN 2
+         WHEN EXISTS (
+           SELECT 1 FROM thread_labels tl_l
+           WHERE tl_l.account_id = t.account_id 
+             AND tl_l.thread_id = t.id 
+             AND tl_l.label_id = $5
+         ) THEN 3
+         WHEN EXISTS (
+           SELECT 1 FROM thread_labels tl_a
+           WHERE tl_a.account_id = t.account_id 
+             AND tl_a.thread_id = t.id 
+             AND tl_a.label_id = $6
+         ) THEN 4
+         ELSE 99
+       END ASC,
+       t.last_message_at DESC
+     LIMIT $7 OFFSET $8`,
+    [
+      accountId,
+      recentDraftCutoff,
+      EA_LABELS.HIGH,
+      EA_LABELS.MEDIUM,
+      EA_LABELS.LOW,
+      EA_LABELS.ARCHIVE,
+      limit,
+      offset,
+    ],
   );
 }
 
