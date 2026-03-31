@@ -6,6 +6,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { navigateToLabel, navigateToThread, navigateBack, getActiveLabel, getSelectedThreadId } from "@/router/navigate";
+import { removeAndAdvance } from "@/utils/threadNavigation";
 import { archiveThread, trashThread, permanentDeleteThread, starThread, spamThread } from "@/services/emailActions";
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
 import { deleteDraftsForThread } from "@/services/gmail/draftDeletion";
@@ -301,12 +302,17 @@ async function executeAction(actionId: string): Promise<void> {
     case "action.archive": {
       const multiIds = useThreadStore.getState().selectedThreadIds;
       if (multiIds.size > 0 && activeAccountId) {
+        // Multi-select: archive all, then clear selection
         const ids = [...multiIds];
         for (const id of ids) {
           await archiveThread(activeAccountId, id, []);
+          useThreadStore.getState().removeThread(id);
         }
+        useThreadStore.getState().clearMultiSelect();
       } else if (selectedId && activeAccountId) {
+        // Single select: archive and auto-advance to next
         await archiveThread(activeAccountId, selectedId, []);
+        removeAndAdvance(selectedId);
       }
       break;
     }
@@ -316,6 +322,7 @@ async function executeAction(actionId: string): Promise<void> {
       const isDraftsView = deleteLabelCtx === "drafts";
       const multiDeleteIds = useThreadStore.getState().selectedThreadIds;
       if (multiDeleteIds.size > 0 && activeAccountId) {
+        // Multi-select: delete all, then clear selection
         const ids = [...multiDeleteIds];
         for (const id of ids) {
           if (isTrashView) {
@@ -325,15 +332,17 @@ async function executeAction(actionId: string): Promise<void> {
             try {
               const client = await getGmailClient(activeAccountId);
               await deleteDraftsForThread(client, activeAccountId, id);
-              useThreadStore.getState().removeThread(id);
             } catch (err) {
               console.error("Draft delete failed:", err);
             }
           } else {
             await trashThread(activeAccountId, id, []);
           }
+          useThreadStore.getState().removeThread(id);
         }
+        useThreadStore.getState().clearMultiSelect();
       } else if (selectedId && activeAccountId) {
+        // Single select: delete and auto-advance to next
         if (isTrashView) {
           await permanentDeleteThread(activeAccountId, selectedId, []);
           await deleteThreadFromDb(activeAccountId, selectedId);
@@ -341,13 +350,13 @@ async function executeAction(actionId: string): Promise<void> {
           try {
             const client = await getGmailClient(activeAccountId);
             await deleteDraftsForThread(client, activeAccountId, selectedId);
-            useThreadStore.getState().removeThread(selectedId);
           } catch (err) {
             console.error("Draft delete failed:", err);
           }
         } else {
           await trashThread(activeAccountId, selectedId, []);
         }
+        removeAndAdvance(selectedId);
       }
       break;
     }
@@ -364,12 +373,17 @@ async function executeAction(actionId: string): Promise<void> {
       const isSpamView = getActiveLabel() === "spam";
       const multiSpamIds = useThreadStore.getState().selectedThreadIds;
       if (multiSpamIds.size > 0 && activeAccountId) {
+        // Multi-select: spam all, then clear selection
         const ids = [...multiSpamIds];
         for (const id of ids) {
           await spamThread(activeAccountId, id, [], !isSpamView);
+          useThreadStore.getState().removeThread(id);
         }
+        useThreadStore.getState().clearMultiSelect();
       } else if (selectedId && activeAccountId) {
+        // Single select: spam and auto-advance to next
         await spamThread(activeAccountId, selectedId, [], !isSpamView);
+        removeAndAdvance(selectedId);
       }
       break;
     }
