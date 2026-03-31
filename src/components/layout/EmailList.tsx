@@ -9,7 +9,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadsEAPriority, getThreadLabelIds, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
 import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
@@ -285,6 +285,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         // Server-side category filtering for inbox
         if (activeLabel === "inbox" && activeCategory !== "All") {
           dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, 0);
+        } else if (activeLabel === "inbox") {
+          // EA priority sort for default inbox view
+          dbThreads = await getThreadsEAPriority(activeAccountId, PAGE_SIZE, 0);
         } else {
           const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
           dbThreads = await getThreadsForAccount(
@@ -315,6 +318,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       let dbThreads;
       if (activeLabel === "inbox" && activeCategory !== "All") {
         dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, offset);
+      } else if (activeLabel === "inbox") {
+        // EA priority sort for default inbox view (pagination)
+        dbThreads = await getThreadsEAPriority(activeAccountId, PAGE_SIZE, offset);
       } else {
         const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
         dbThreads = await getThreadsForAccount(
