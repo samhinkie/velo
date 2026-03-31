@@ -31,6 +31,7 @@ import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
 import { sanitizeHtml } from "@/utils/sanitize";
+import { removeAndAdvance } from "@/utils/threadNavigation";
 
 export function Composer() {
   // Individual selectors — only re-render when each specific value changes
@@ -286,6 +287,11 @@ export function Composer() {
         // Update contacts frequency
         for (const addr of [...state.to, ...state.cc, ...state.bcc]) {
           await upsertContact(addr, null);
+        }
+
+        // Auto-advance to next thread after successful reply
+        if (state.threadId) {
+          removeAndAdvance(state.threadId);
         }
       } catch (err) {
         console.error("Failed to send email:", err);
